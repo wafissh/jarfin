@@ -1,0 +1,23 @@
+# Core
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+python-dotenv==1.0.1
+pydantic-settings==2.4.0
+
+# Telegram
+python-telegram-bot==21.5
+
+# Database
+sqlalchemy[asyncio]==2.0.50
+aiosqlite==0.20.0
+
+# AI
+google-genai==1.14.0
+httpx>=0.28.1,<1.0.0
+
+# OCR (skeleton - will be used in Phase 2)
+# google-cloud-vision==3.7.0
+
+# Testing
+pytest==8.3.2
+pytest-asyncio==0.23.8
