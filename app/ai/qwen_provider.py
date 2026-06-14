@@ -59,6 +59,21 @@ class QwenProvider(AIProvider):
         if self.base_url.endswith("/"):
             self.base_url = self.base_url[:-1]
 
+        # Persistent HTTP client — reuses TCP/TLS connections across requests.
+        # This avoids DNS + TCP + TLS handshake overhead on every single API call.
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(connect=8.0, read=45.0, write=10.0, pool=5.0),
+            limits=httpx.Limits(
+                max_keepalive_connections=5,
+                max_connections=10,
+                keepalive_expiry=30.0,
+            ),
+            headers={
+                "Authorization": f"Bearer {self.api_key or ''}",
+                "Content-Type": "application/json",
+            },
+        )
+
     async def parse_transaction(self, text: str) -> ParsedTransaction:
         """Parse a text message into a structured transaction using Qwen."""
         prompt = TRANSACTION_PARSE_PROMPT.format(
@@ -72,29 +87,24 @@ class QwenProvider(AIProvider):
                 raise ValueError("DashScope/Qwen API key (DASHSCOPE_API_KEY) is not set")
 
             url = f"{self.base_url}/chat/completions"
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    url,
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": self.model,
-                        "messages": [
-                            {"role": "user", "content": prompt}
-                        ],
-                        "response_format": {"type": "json_object"},
-                        "temperature": 0.1,
-                    },
-                    timeout=30.0,
-                )
-                if response.status_code != 200:
-                    logger.error(f"Qwen API error response: {response.text}")
-                response.raise_for_status()
-                res_data = response.json()
-                content = res_data["choices"][0]["message"]["content"]
-                return self._parse_json_response(content)
+            response = await self._client.post(
+                url,
+                json={
+                    "model": self.model,
+                    "messages": [
+                        {"role": "user", "content": prompt}
+                    ],
+                    "response_format": {"type": "json_object"},
+                    "temperature": 0.1,
+                    "max_tokens": 256,
+                },
+            )
+            if response.status_code != 200:
+                logger.error(f"Qwen API error response: {response.text}")
+            response.raise_for_status()
+            res_data = response.json()
+            content = res_data["choices"][0]["message"]["content"]
+            return self._parse_json_response(content)
 
         except Exception as e:
             logger.error(f"Qwen parse_transaction failed: {e}")
@@ -113,29 +123,24 @@ class QwenProvider(AIProvider):
                 raise ValueError("DashScope/Qwen API key (DASHSCOPE_API_KEY) is not set")
 
             url = f"{self.base_url}/chat/completions"
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    url,
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": self.model,
-                        "messages": [
-                            {"role": "user", "content": prompt}
-                        ],
-                        "response_format": {"type": "json_object"},
-                        "temperature": 0.1,
-                    },
-                    timeout=30.0,
-                )
-                if response.status_code != 200:
-                    logger.error(f"Qwen API error response: {response.text}")
-                response.raise_for_status()
-                res_data = response.json()
-                content = res_data["choices"][0]["message"]["content"]
-                return self._parse_json_list_response(content)
+            response = await self._client.post(
+                url,
+                json={
+                    "model": self.model,
+                    "messages": [
+                        {"role": "user", "content": prompt}
+                    ],
+                    "response_format": {"type": "json_object"},
+                    "temperature": 0.1,
+                    "max_tokens": 512,
+                },
+            )
+            if response.status_code != 200:
+                logger.error(f"Qwen API error response: {response.text}")
+            response.raise_for_status()
+            res_data = response.json()
+            content = res_data["choices"][0]["message"]["content"]
+            return self._parse_json_list_response(content)
 
         except Exception as e:
             logger.error(f"Qwen parse_receipt_text failed: {e}")
@@ -175,27 +180,24 @@ class QwenProvider(AIProvider):
                 raise ValueError("DashScope/Qwen API key (DASHSCOPE_API_KEY) is not set")
 
             url = f"{self.base_url}/chat/completions"
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    url,
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": self.model,
-                        "messages": messages,
-                        "response_format": {"type": "json_object"},
-                        "temperature": 0.1,
-                    },
-                    timeout=45.0,
-                )
-                if response.status_code != 200:
-                    logger.error(f"Qwen API error response: {response.text}")
-                response.raise_for_status()
-                res_data = response.json()
-                content = res_data["choices"][0]["message"]["content"]
-                return self._parse_json_list_response(content)
+            # Image parsing needs longer timeout (uploading base64 + inference)
+            response = await self._client.post(
+                url,
+                json={
+                    "model": self.model,
+                    "messages": messages,
+                    "response_format": {"type": "json_object"},
+                    "temperature": 0.1,
+                    "max_tokens": 512,
+                },
+                timeout=60.0,
+            )
+            if response.status_code != 200:
+                logger.error(f"Qwen API error response: {response.text}")
+            response.raise_for_status()
+            res_data = response.json()
+            content = res_data["choices"][0]["message"]["content"]
+            return self._parse_json_list_response(content)
 
         except Exception as e:
             logger.error(f"Qwen parse_receipt_image failed: {e}")
@@ -289,28 +291,22 @@ class QwenProvider(AIProvider):
                 raise ValueError("API key not set")
 
             url = f"{self.base_url}/chat/completions"
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    url,
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": self.model,
-                        "messages": [
-                            {"role": "system", "content": CHAT_SYSTEM_PROMPT},
-                            {"role": "user", "content": user_message},
-                        ],
-                        "temperature": 0.8,
-                        "max_tokens": 300,
-                    },
-                    timeout=20.0,
-                )
-                response.raise_for_status()
-                res_data = response.json()
-                reply = res_data["choices"][0]["message"]["content"].strip()
-                return reply
+            response = await self._client.post(
+                url,
+                json={
+                    "model": self.model,
+                    "messages": [
+                        {"role": "system", "content": CHAT_SYSTEM_PROMPT},
+                        {"role": "user", "content": user_message},
+                    ],
+                    "temperature": 0.8,
+                    "max_tokens": 200,  # Chat reply tidak perlu panjang
+                },
+            )
+            response.raise_for_status()
+            res_data = response.json()
+            reply = res_data["choices"][0]["message"]["content"].strip()
+            return reply
 
         except Exception as e:
             logger.error(f"Qwen chat_response failed: {e}")
@@ -320,4 +316,5 @@ class QwenProvider(AIProvider):
                 "💬 Mau catat transaksi? Ketik aja langsung, contoh:\n"
                 "_Kopi 15000_ atau _Makan siang 25000_"
             )
+
 

@@ -285,11 +285,48 @@ async def rutin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
 
+
+# ── Transaction Heuristic ───────────────────────────────────────────────────
+
+def _looks_like_transaction(text: str) -> bool:
+    """
+    Quick heuristic: does this text look like a financial transaction?
+    Used to skip expensive AI parse_transaction call for obvious chat messages.
+
+    Returns True if the message MIGHT be a transaction (to be safe),
+    False if it's clearly just a greeting or casual message.
+    """
+    import re
+
+    # Has any digits → likely a transaction (amount is almost always present)
+    if re.search(r'\d', text):
+        return True
+
+    # Has transaction-related keywords (even without amount)
+    txn_keywords = [
+        # Actions
+        'bayar', 'beli', 'beli', 'belanja', 'jajan', 'makan', 'minum',
+        'bayarin', 'transfer', 'kirim', 'terima', 'dapat', 'dapet',
+        'charge', 'debit', 'kredit', 'cicil', 'cicilan', 'hutang', 'piutang',
+        # Income
+        'gaji', 'salary', 'bonus', 'freelance', 'pemasukan', 'income',
+        'kembalian', 'refund', 'cashback',
+        # Expense categories
+        'bensin', 'parkir', 'tol', 'ojek', 'grab', 'gojek', 'taxi', 'taksi',
+        'listrik', 'pulsa', 'internet', 'tagihan', 'iuran', 'sewa',
+        'netflix', 'spotify', 'youtube', 'subscript',
+        'dokter', 'obat', 'apotek', 'rs', 'rumah sakit',
+    ]
+
+    lower = text.lower()
+    return any(kw in lower for kw in txn_keywords)
+
+
 # ── Message Handlers ────────────────────────────────────────────────────────
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle text messages — parse as transaction input with confirmation flow.
-    If the message is not a transaction (low confidence), respond conversationally.
+    If the message is not a transaction (low confidence or heuristic), respond conversationally.
     """
     user = update.effective_user
     message = update.message
@@ -317,12 +354,32 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Send "typing" indicator
     await message.reply_chat_action("typing")
 
+    # ── Fast path: heuristic pre-filter ────────────────────────────────────
+    # If the message clearly doesn't look like a transaction (no digits, no
+    # transaction keywords), skip the expensive parse_transaction API call and
+    # go directly to chat_response. This cuts latency from ~2x to ~1x API call.
+    if not _looks_like_transaction(text):
+        try:
+            reply = await _ai_provider.chat_response(
+                text=text,
+                user_name=user.first_name or user.username,
+            )
+            await message.reply_text(reply, parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"Error in chat_response: {e}", exc_info=True)
+            await message.reply_text(
+                f"Halo! 👋 Ada yang bisa Jarfin bantu?\n"
+                "_Kirim transaksi seperti: Kopi 15000_",
+                parse_mode="Markdown",
+            )
+        return
+
+    # ── Normal path: parse as transaction ──────────────────────────────────
     try:
         # Parse WITHOUT saving (confidence check first)
         result = await _transaction_service.parse_only(text)
 
-        # ── Confidence threshold: if < 0.3, treat as casual conversation ──
-        # This catches greetings, questions, or unrelated messages.
+        # Secondary check: even if heuristic passed, AI might still say low confidence
         if result["confidence"] < 0.3:
             reply = await _ai_provider.chat_response(
                 text=text,
