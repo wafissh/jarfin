@@ -73,12 +73,28 @@ def _format_currency(amount: float, currency: str = "IDR") -> str:
 
 
 CATEGORY_EMOJIS = {
+    # Expense
     "Makanan & Minuman": "🍔",
     "Transportasi": "🚗",
     "Belanja": "🛒",
     "Tagihan & Utilitas": "💡",
     "Hiburan": "🎮",
     "Kesehatan": "🏥",
+    
+    # Income
+    "Gaji": "💵",
+    "Freelance": "💻",
+    "Bonus & THR": "🎁",
+    "Bisnis": "📈",
+    "Investasi": "📊",
+    "Sewa": "🏠",
+    "Transfer Keluarga": "👪",
+    "Beasiswa": "🎓",
+    "Cashback & Reward": "🪙",
+    "Penjualan Barang": "🛍️",
+    "Refund": "🔄",
+    
+    # Common
     "Lainnya": "📦",
 }
 
@@ -110,6 +126,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         f"📝 /riwayat — Lihat riwayat transaksi\n"
         f"💰 /budget — Kelola budget\n"
         f"🔄 /rutin — Transaksi rutin bulanan\n"
+        f"💡 /konsul — Konsultasi keuangan mendalam (Deep Reasoning AI)\n"
         f"⚙️ /settings — Pengaturan\n"
         f"❓ /help — Bantuan lebih lengkap\n\n"
         f"Mulai catat transaksimu sekarang! 🚀"
@@ -141,6 +158,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "• /hapus `<id>` — Hapus transaksi berdasarkan ID\n"
         "• /budget — Kelola budget per kategori\n"
         "• /rutin — Kelola transaksi rutin\n"
+        "• /konsul `<pertanyaan>` — Konsultasi keuangan mendalam (Deep Reasoning AI)\n"
         "• /settings — Pengaturan mata uang & zona waktu\n\n"
         "*Kategori Otomatis:*\n"
         "🍔 Makanan & Minuman\n"
@@ -285,6 +303,123 @@ async def rutin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
 
+async def konsul_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /konsul <pertanyaan> — financial consultation using the heavy reasoning model."""
+    user = update.effective_user
+    message = update.message
+    if not user or not message:
+        return
+
+    # Extract the question from context.args
+    if not context.args:
+        await message.reply_text(
+            "💡 *Format salah.*\n\n"
+            "Gunakan: `/konsul <pertanyaan keuangan Anda>`\n"
+            "Contoh: `/konsul bagaimana cara menabung 1 juta sebulan untuk mahasiswa?`",
+            parse_mode="Markdown",
+        )
+        return
+
+    question = " ".join(context.args).strip()
+
+    # Validate message size and content rules
+    is_valid, warning_text = _validate_message(question)
+    if not is_valid:
+        await message.reply_text(warning_text, parse_mode="Markdown")
+        return
+
+    # Send typing action
+    await message.reply_chat_action("typing")
+
+    try:
+        # Generate conversational reply as Jarfin using heavy reasoning model
+        reply = await _ai_provider.chat_response(
+            text=question,
+            user_name=user.first_name or user.username,
+            use_reasoning=True,
+        )
+        await message.reply_text(reply, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Error in konsul_command: {e}", exc_info=True)
+        await message.reply_text(
+            "❌ Maaf, terjadi kesalahan saat memproses konsultasi Anda. Coba lagi nanti."
+        )
+
+
+
+# ── Message Validation ──────────────────────────────────────────────────────
+
+def _validate_message(text: str) -> tuple[bool, str]:
+    """
+    Validate if the user's message is within acceptable length and content guidelines.
+    Returns (is_valid, warning_message).
+    """
+    lower_text = text.lower()
+
+    # 1. Check length (limit is 1000 characters to prevent heavy/token-heavy inputs)
+    if len(text) > 1000:
+        return False, (
+            "⚠️ *Pesan Terlalu Panjang*\n\n"
+            "Maaf, pesan kamu melebihi batas panjang maksimum (1000 karakter).\n"
+            "Silakan kirim pesan yang lebih singkat dan terfokus pada pencatatan keuangan atau konsultasi finansial. 😊"
+        )
+
+    # Transaction / payment context check
+    # If it contains clear transaction/payment indicators, we assume it is a valid transaction input.
+    import re
+    txn_indicator_pattern = r'\b(bayar|beli|biaya|pembayaran|harga|tarif|ongkos|print|jilid|fotokopi|idr)\b|\brp\b|\brp\s*\d+'
+    if re.search(txn_indicator_pattern, lower_text):
+        return True, ""
+
+    # App/Web/Code creation keywords
+    app_verbs = ["buat", "bikin", "membuat", "create", "build", "develop", "generate", "rancang", "merancang", "tulis", "menulis"]
+    app_nouns = ["aplikasi", "website", "web", "program", "coding", "koding", "source code", "sourcecode"]
+
+    # Paper/Academic creation keywords
+    paper_verbs = ["buat", "bikin", "tulis", "membuat", "menulis", "susun", "menyusun", "generate", "kerjakan", "mengerjakan"]
+    paper_nouns = ["paper", "skripsi", "tesis", "thesis", "makalah", "jurnal", "essay", "esai"]
+
+    # Direct source code/coding triggers
+    direct_code_keywords = ["source code", "sourcecode", "coding", "koding"]
+
+    # Check direct code keywords first
+    if any(dk in lower_text for dk in direct_code_keywords):
+        return False, (
+            "⚠️ *Permintaan Tidak Didukung*\n\n"
+            "Maaf, Jarfin adalah asisten pencatat keuangan pribadi dan tidak dapat melayani permintaan untuk *membuat aplikasi, program, atau koding*.\n\n"
+            "Silakan ajukan pertanyaan seputar keuangan pribadi atau catat transaksimu! 😊"
+        )
+
+    # Check app verbs + nouns combination
+    has_app_verb = any(v in lower_text for v in app_verbs) or any(f"{v}kan" in lower_text for v in app_verbs) or any(f"{v}in" in lower_text for v in app_verbs)
+    has_app_noun = any(n in lower_text for n in app_nouns)
+    if has_app_verb and has_app_noun:
+        return False, (
+            "⚠️ *Permintaan Tidak Didukung*\n\n"
+            "Maaf, Jarfin adalah asisten pencatat keuangan pribadi dan tidak dapat melayani permintaan untuk *membuat aplikasi, program, atau koding*.\n\n"
+            "Silakan ajukan pertanyaan seputar keuangan pribadi atau catat transaksimu! 😊"
+        )
+
+    # Check paper verbs + nouns combination
+    has_paper_verb = any(v in lower_text for v in paper_verbs) or any(f"{v}kan" in lower_text for v in paper_verbs) or any(f"{v}in" in lower_text for v in paper_verbs)
+    has_paper_noun = any(n in lower_text for n in paper_nouns)
+    if has_paper_verb and has_paper_noun:
+        return False, (
+            "⚠️ *Permintaan Tidak Didukung*\n\n"
+            "Maaf, Jarfin adalah asisten pencatat keuangan pribadi dan tidak dapat melayani permintaan untuk *menulis paper, skripsi, makalah, atau tugas akademik lainnya*.\n\n"
+            "Silakan ajukan pertanyaan seputar keuangan pribadi atau catat transaksimu! 😊"
+        )
+
+    # Check "noun + tentang/mengenai" pattern (e.g. "paper tentang ekonomi", "skripsi tentang AI")
+    if any(n in lower_text for n in paper_nouns) and any(t in lower_text for t in ["tentang", "mengenai"]):
+        return False, (
+            "⚠️ *Permintaan Tidak Didukung*\n\n"
+            "Maaf, Jarfin adalah asisten pencatat keuangan pribadi dan tidak dapat melayani permintaan untuk *menulis paper, skripsi, makalah, atau tugas akademik lainnya*.\n\n"
+            "Silakan ajukan pertanyaan seputar keuangan pribadi atau catat transaksimu! 😊"
+        )
+
+    return True, ""
+
 
 # ── Transaction Heuristic ───────────────────────────────────────────────────
 
@@ -349,6 +484,12 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if context.user_data.get("awaiting_recurring_description"):
         await _handle_recurring_description_input(update, context, text)
+        return
+
+    # Validate message size and content rules
+    is_valid, warning_text = _validate_message(text)
+    if not is_valid:
+        await message.reply_text(warning_text, parse_mode="Markdown")
         return
 
     # Send "typing" indicator
@@ -804,7 +945,7 @@ async def _handle_editcat_callback(query, context, pending_id: str) -> None:
         f"Transaksi: {pending.get('description', '-')} — {_format_currency(pending['amount'])}\n\n"
         f"Pilih kategori baru:",
         parse_mode="Markdown",
-        reply_markup=build_category_keyboard(),
+        reply_markup=build_category_keyboard(txn_type=pending.get("type", "expense")),
     )
 
 

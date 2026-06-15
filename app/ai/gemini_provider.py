@@ -11,7 +11,7 @@ from datetime import date, datetime
 from typing import Any
 
 from app.ai.base import AIProvider, ParsedTransaction
-from app.config import CATEGORY_NAMES, get_settings
+from app.config import CATEGORY_NAMES, INCOME_CATEGORY_NAMES, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,9 @@ logger = logging.getLogger(__name__)
 
 TRANSACTION_PARSE_PROMPT = """Kamu adalah asisten keuangan. Tugas kamu: ekstrak informasi transaksi dari pesan pengguna.
 
-Kategori yang tersedia: {categories}
+Daftar Kategori yang tersedia berdasarkan tipe transaksi:
+- Kategori Pengeluaran (Expense): {expense_categories}
+- Kategori Pemasukan (Income): {income_categories}
 
 Pesan pengguna: "{text}"
 
@@ -39,6 +41,7 @@ Balas dalam format JSON (tanpa markdown, tanpa ```):
 Aturan:
 - amount harus berupa angka positif
 - type harus berupa "income" jika transaksi adalah pemasukan (gaji, transfer masuk, dapat uang, kembalian, untung, hadiah, dll) atau "expense" jika transaksi adalah pengeluaran (belanja, makan, bayar tagihan, dll)
+- category harus disesuaikan dengan tipe transaksi. Jika type adalah "income", category harus dipilih dari Kategori Pemasukan. Jika type adalah "expense", category harus dipilih dari Kategori Pengeluaran.
 - Jika pengguna tidak menyebut tanggal, gunakan hari ini
 - Jika tidak yakin kategori, gunakan "Lainnya"
 - confidence: seberapa yakin kamu dengan parsing ini (0.0-1.0)
@@ -46,7 +49,9 @@ Aturan:
 
 RECEIPT_PARSE_PROMPT = """Kamu adalah asisten keuangan. Ekstrak semua transaksi dari teks struk/nota berikut.
 
-Kategori yang tersedia: {categories}
+Daftar Kategori yang tersedia berdasarkan tipe transaksi:
+- Kategori Pengeluaran (Expense): {expense_categories}
+- Kategori Pemasukan (Income): {income_categories}
 
 Teks struk:
 \"\"\"
@@ -73,6 +78,7 @@ Aturan:
 - Jika ada item-item individual, buat transaksi per item
 - Gunakan nama toko dari struk sebagai merchant
 - type harus berupa "expense" untuk pengeluaran belanja struk, kecuali terindikasi sebaliknya
+- category harus disesuaikan dengan tipe transaksi. Jika type adalah "income", category harus dipilih dari Kategori Pemasukan. Jika type adalah "expense", category harus dipilih dari Kategori Pengeluaran.
 """
 
 
@@ -96,7 +102,8 @@ class GeminiProvider(AIProvider):
     async def parse_transaction(self, text: str) -> ParsedTransaction:
         """Parse a text message into a structured transaction using Gemini."""
         prompt = TRANSACTION_PARSE_PROMPT.format(
-            categories=", ".join(CATEGORY_NAMES),
+            expense_categories=", ".join(CATEGORY_NAMES),
+            income_categories=", ".join(INCOME_CATEGORY_NAMES),
             text=text,
             today=date.today().isoformat(),
         )
@@ -118,7 +125,8 @@ class GeminiProvider(AIProvider):
     async def parse_receipt_text(self, ocr_text: str) -> list[ParsedTransaction]:
         """Parse OCR receipt text into transactions using Gemini."""
         prompt = RECEIPT_PARSE_PROMPT.format(
-            categories=", ".join(CATEGORY_NAMES),
+            expense_categories=", ".join(CATEGORY_NAMES),
+            income_categories=", ".join(INCOME_CATEGORY_NAMES),
             ocr_text=ocr_text,
             today=date.today().isoformat(),
         )

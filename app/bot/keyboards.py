@@ -3,19 +3,27 @@ Inline keyboard builders for the Telegram bot.
 """
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from app.config import DEFAULT_CATEGORIES
+from app.config import DEFAULT_CATEGORIES, INCOME_CATEGORIES
 
 
-def build_category_keyboard() -> InlineKeyboardMarkup:
+def build_category_keyboard(txn_type: str = "expense") -> InlineKeyboardMarkup:
     """Build an inline keyboard with category selection buttons."""
     buttons = []
-    for cat in DEFAULT_CATEGORIES:
-        buttons.append(
-            [InlineKeyboardButton(
+    categories = INCOME_CATEGORIES if txn_type == "income" else DEFAULT_CATEGORIES
+    
+    row = []
+    for cat in categories:
+        row.append(
+            InlineKeyboardButton(
                 text=f"{cat['name']}",
                 callback_data=f"cat:{cat['name']}",
-            )]
+            )
         )
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
     return InlineKeyboardMarkup(buttons)
 
 

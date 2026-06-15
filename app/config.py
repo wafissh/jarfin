@@ -23,6 +23,26 @@ CATEGORY_NAMES: list[str] = [cat["name"] for cat in DEFAULT_CATEGORIES]
 CATEGORY_NAMES_EN: list[str] = [cat["name_en"] for cat in DEFAULT_CATEGORIES]
 
 
+# ── Income categories ───────────────────────────────────────────────────────
+
+INCOME_CATEGORIES: list[dict[str, str]] = [
+    {"name": "Gaji", "name_en": "Salary"},
+    {"name": "Freelance", "name_en": "Freelance"},
+    {"name": "Bonus & THR", "name_en": "Bonus & Holiday Allowance"},
+    {"name": "Bisnis", "name_en": "Business"},
+    {"name": "Investasi", "name_en": "Investment"},
+    {"name": "Sewa", "name_en": "Rent"},
+    {"name": "Transfer Keluarga", "name_en": "Family Transfer"},
+    {"name": "Beasiswa", "name_en": "Scholarship"},
+    {"name": "Cashback & Reward", "name_en": "Cashback & Reward"},
+    {"name": "Penjualan Barang", "name_en": "Asset Sale"},
+    {"name": "Refund", "name_en": "Refund"},
+    {"name": "Lainnya", "name_en": "Others"},
+]
+
+INCOME_CATEGORY_NAMES: list[str] = [cat["name"] for cat in INCOME_CATEGORIES]
+
+
 # ── Settings ────────────────────────────────────────────────────────────────
 
 class Settings(BaseSettings):
@@ -47,7 +67,8 @@ class Settings(BaseSettings):
     # AI / Qwen
     dashscope_api_key: str = Field(default="", description="Alibaba DashScope / Qwen API Key")
     qwen_base_url: str = Field(default="", description="Qwen OpenAI-compatible base URL")
-    qwen_model: str = Field(default="qwen3.5-plus", description="Qwen AI model")
+    qwen_model: str = Field(default="qwen-plus", description="Qwen AI model for transaction parsing")
+    qwen_chat_model: str = Field(default="qwen3.5-plus", description="Qwen AI model for chat/consultation")
 
     # Provider Selection
     ai_provider: Literal["gemini", "groq", "qwen"] = Field(

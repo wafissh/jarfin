@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 
 from app.ai.base import AIProvider, ParsedTransaction
-from app.config import CATEGORY_NAMES, get_settings
+from app.config import CATEGORY_NAMES, INCOME_CATEGORY_NAMES, get_settings
 from app.ai.gemini_provider import TRANSACTION_PARSE_PROMPT, RECEIPT_PARSE_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,8 @@ class GroqProvider(AIProvider):
     async def parse_transaction(self, text: str) -> ParsedTransaction:
         """Parse a text message into a structured transaction using Groq."""
         prompt = TRANSACTION_PARSE_PROMPT.format(
-            categories=", ".join(CATEGORY_NAMES),
+            expense_categories=", ".join(CATEGORY_NAMES),
+            income_categories=", ".join(INCOME_CATEGORY_NAMES),
             text=text,
             today=date.today().isoformat(),
         )
@@ -69,7 +70,8 @@ class GroqProvider(AIProvider):
     async def parse_receipt_text(self, ocr_text: str) -> list[ParsedTransaction]:
         """Parse OCR receipt text into transactions using Groq."""
         prompt = RECEIPT_PARSE_PROMPT.format(
-            categories=", ".join(CATEGORY_NAMES),
+            expense_categories=", ".join(CATEGORY_NAMES),
+            income_categories=", ".join(INCOME_CATEGORY_NAMES),
             ocr_text=ocr_text,
             today=date.today().isoformat(),
         )

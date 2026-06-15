@@ -31,6 +31,7 @@ from app.bot.handlers import (
     settings_command,
     budget_command,
     rutin_command,
+    konsul_command,
     handle_text_message,
     handle_photo_message,
     handle_callback_query,
@@ -70,6 +71,7 @@ def create_telegram_app() -> Application:
     app.add_handler(CommandHandler("settings", settings_command))
     app.add_handler(CommandHandler("budget", budget_command))
     app.add_handler(CommandHandler("rutin", rutin_command))
+    app.add_handler(CommandHandler("konsul", konsul_command))
 
     # Callback query handler (inline keyboard buttons)
     app.add_handler(CallbackQueryHandler(handle_callback_query))

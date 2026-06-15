@@ -87,7 +87,7 @@ class AIProvider(ABC):
         """
         raise NotImplementedError("Direct image parsing is not supported by this provider")
 
-    async def chat_response(self, text: str, user_name: str | None = None) -> str:
+    async def chat_response(self, text: str, user_name: str | None = None, use_reasoning: bool = False) -> str:
         """
         Generate a casual conversational reply when the user's message
         is not a financial transaction (e.g., greetings, questions about the bot).

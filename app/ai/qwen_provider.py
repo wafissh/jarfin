@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 
 from app.ai.base import AIProvider, ParsedTransaction
-from app.config import CATEGORY_NAMES, get_settings
+from app.config import CATEGORY_NAMES, INCOME_CATEGORY_NAMES, get_settings
 from app.ai.gemini_provider import TRANSACTION_PARSE_PROMPT, RECEIPT_PARSE_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -42,6 +42,7 @@ Cara pakai bot:
 - /budget → kelola budget
 - /rutin → transaksi rutin bulanan
 - /hapus <id> → hapus transaksi
+- /konsul <pertanyaan> → konsultasi keuangan mendalam (Deep Reasoning AI)
 
 Jika pengguna bertanya tentang hal di luar keuangan pribadi, arahkan dengan sopan ke topik keuangan atau jawab singkat saja."""
 
@@ -53,7 +54,8 @@ class QwenProvider(AIProvider):
         settings = get_settings()
         self.api_key = api_key or settings.dashscope_api_key
         self.base_url = base_url or settings.qwen_base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1"
-        self.model = model or settings.qwen_model or "qwen3.5-plus"
+        self.model = model or settings.qwen_model or "qwen-plus"
+        self.chat_model = settings.qwen_chat_model or "qwen3.5-plus"
 
         # Ensure base_url does not end with /
         if self.base_url.endswith("/"):
@@ -77,7 +79,8 @@ class QwenProvider(AIProvider):
     async def parse_transaction(self, text: str) -> ParsedTransaction:
         """Parse a text message into a structured transaction using Qwen."""
         prompt = TRANSACTION_PARSE_PROMPT.format(
-            categories=", ".join(CATEGORY_NAMES),
+            expense_categories=", ".join(CATEGORY_NAMES),
+            income_categories=", ".join(INCOME_CATEGORY_NAMES),
             text=text,
             today=date.today().isoformat(),
         )
@@ -97,6 +100,7 @@ class QwenProvider(AIProvider):
                     "response_format": {"type": "json_object"},
                     "temperature": 0.1,
                     "max_tokens": 256,
+                    "enable_thinking": False,
                 },
             )
             if response.status_code != 200:
@@ -113,7 +117,8 @@ class QwenProvider(AIProvider):
     async def parse_receipt_text(self, ocr_text: str) -> list[ParsedTransaction]:
         """Parse OCR receipt text into transactions using Qwen."""
         prompt = RECEIPT_PARSE_PROMPT.format(
-            categories=", ".join(CATEGORY_NAMES),
+            expense_categories=", ".join(CATEGORY_NAMES),
+            income_categories=", ".join(INCOME_CATEGORY_NAMES),
             ocr_text=ocr_text,
             today=date.today().isoformat(),
         )
@@ -133,6 +138,7 @@ class QwenProvider(AIProvider):
                     "response_format": {"type": "json_object"},
                     "temperature": 0.1,
                     "max_tokens": 512,
+                    "enable_thinking": False,
                 },
             )
             if response.status_code != 200:
@@ -152,7 +158,8 @@ class QwenProvider(AIProvider):
 
         base64_image = base64.b64encode(image_bytes).decode("utf-8")
         prompt = RECEIPT_PARSE_PROMPT.format(
-            categories=", ".join(CATEGORY_NAMES),
+            expense_categories=", ".join(CATEGORY_NAMES),
+            income_categories=", ".join(INCOME_CATEGORY_NAMES),
             ocr_text="[Gambar Struk Terlampir]",
             today=date.today().isoformat(),
         )
@@ -189,6 +196,7 @@ class QwenProvider(AIProvider):
                     "response_format": {"type": "json_object"},
                     "temperature": 0.1,
                     "max_tokens": 512,
+                    "enable_thinking": False,
                 },
                 timeout=60.0,
             )
@@ -278,7 +286,7 @@ class QwenProvider(AIProvider):
             confidence=0.1,
         )
 
-    async def chat_response(self, text: str, user_name: str | None = None) -> str:
+    async def chat_response(self, text: str, user_name: str | None = None, use_reasoning: bool = False) -> str:
         """
         Generate a natural conversational reply as Jarfin using Qwen API.
         Used when user's message is not a financial transaction.
@@ -290,17 +298,22 @@ class QwenProvider(AIProvider):
             if not self.api_key:
                 raise ValueError("API key not set")
 
+            model_name = self.chat_model if use_reasoning else self.model
+            enable_thinking = True if use_reasoning else False
+            max_tokens = 1024 if use_reasoning else 200
+
             url = f"{self.base_url}/chat/completions"
             response = await self._client.post(
                 url,
                 json={
-                    "model": self.model,
+                    "model": model_name,
                     "messages": [
                         {"role": "system", "content": CHAT_SYSTEM_PROMPT},
                         {"role": "user", "content": user_message},
                     ],
                     "temperature": 0.8,
-                    "max_tokens": 200,  # Chat reply tidak perlu panjang
+                    "max_tokens": max_tokens,
+                    "enable_thinking": enable_thinking,
                 },
             )
             response.raise_for_status()
