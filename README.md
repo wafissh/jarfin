@@ -16,9 +16,9 @@ Telegram bot pencatat keuangan otomatis dengan AI.
 |-------|-----------|
 | API Server | Python + FastAPI |
 | Telegram SDK | python-telegram-bot v21+ |
-| Database | SQLite (dev) → PostgreSQL (prod) |
+| Database | SQLite (dev) → Supabase PostgreSQL (prod) |
 | OCR | Google Cloud Vision API |
-| AI Parsing | Gemini API (swappable) |
+| AI Parsing | Gemini / Groq / Qwen (swappable) |
 
 ## Quick Start
 
@@ -56,6 +56,60 @@ python -m app.main
 ```
 
 Bot akan berjalan di polling mode dan FastAPI di `http://localhost:8000`.
+
+## Deploy ke Production
+
+### Persiapan Supabase
+
+1. Buat project di [Supabase](https://supabase.com)
+2. Buka **Settings → Database → Connection string → URI**
+3. Copy URI dan ganti `[YOUR-PASSWORD]` dengan password database kamu
+4. Ubah prefix dari `postgresql://` menjadi `postgresql+asyncpg://`
+5. Set `DATABASE_URL` di environment variable platform deploy kamu
+
+### Deploy ke Railway
+
+```bash
+# 1. Install Railway CLI
+npm install -g @railway/cli
+
+# 2. Login & init
+railway login
+railway init
+
+# 3. Set environment variables
+railway variables set TELEGRAM_BOT_TOKEN=xxx
+railway variables set DATABASE_URL=postgresql+asyncpg://...
+railway variables set AI_PROVIDER=qwen
+railway variables set DASHSCOPE_API_KEY=xxx
+railway variables set BOT_MODE=webhook
+railway variables set WEBHOOK_URL=https://your-app.up.railway.app
+
+# 4. Deploy
+railway up
+```
+
+### Deploy ke Render
+
+1. Buat **Web Service** baru di [Render](https://render.com)
+2. Connect repository GitHub kamu
+3. Set **Build Command**: `pip install -r requirements.txt`
+4. Set **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+5. Tambah environment variables di tab **Environment**
+
+### Deploy dengan Docker (VPS)
+
+```bash
+# Build image
+docker build -t jarfin .
+
+# Run container
+docker run -d \
+  --name jarfin \
+  -p 8000:8000 \
+  --env-file .env \
+  jarfin
+```
 
 ## Struktur Project
 

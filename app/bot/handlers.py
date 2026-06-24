@@ -21,6 +21,8 @@ from app.services.recurring_service import RecurringService
 from app.bot.keyboards import (
     build_main_menu_keyboard,
     build_confirm_keyboard,
+    build_batch_confirm_keyboard,
+    build_batch_category_keyboard,
     build_category_keyboard,
     build_settings_keyboard,
     build_currency_keyboard,
@@ -523,13 +525,15 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
         return
 
-    # ── Normal path: parse as transaction ──────────────────────────────────
+    # ── Normal path: parse as transaction(s) ─────────────────────────────────
     try:
-        # Parse WITHOUT saving (confidence check first)
-        result = await _transaction_service.parse_only(text)
+        logger.info(f"[DEBUG] Starting parse_only_multi for: '{text}'")
+        # Parse WITHOUT saving — may return multiple transactions
+        results = await _transaction_service.parse_only_multi(text)
+        logger.info(f"[DEBUG] parse_only_multi returned {len(results)} raw results: {results}")
 
-        # Secondary check: even if heuristic passed, AI might still say low confidence
-        if result["confidence"] < 0.3:
+        if not results:
+            logger.info("[DEBUG] No raw results returned. Falling back to chat_response.")
             reply = await _ai_provider.chat_response(
                 text=text,
                 user_name=user.first_name or user.username,
@@ -537,44 +541,77 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             await message.reply_text(reply, parse_mode="Markdown")
             return
 
-        # ── High enough confidence → show transaction preview ──
-        pending_id = str(uuid.uuid4())[:8]
+        # Filter out low-confidence results
+        valid_results = [r for r in results if r["confidence"] >= 0.3]
+        logger.info(f"[DEBUG] Filtered valid_results (confidence >= 0.3): {len(valid_results)} items: {valid_results}")
 
-        # Store in user_data for later confirmation
-        context.user_data[f"pending_{pending_id}"] = {
-            **result,
-            "platform_id": str(user.id),
-            "user_name": user.first_name or user.username,
-            "source": "text",
-        }
+        if not valid_results:
+            # All results are low confidence → treat as chat
+            logger.info("[DEBUG] No valid results above confidence 0.3. Falling back to chat_response.")
+            reply = await _ai_provider.chat_response(
+                text=text,
+                user_name=user.first_name or user.username,
+            )
+            await message.reply_text(reply, parse_mode="Markdown")
+            return
 
-        # Build preview message
-        confidence_emoji = "🟢" if result["confidence"] >= 0.7 else "🟡" if result["confidence"] >= 0.4 else "🔴"
+        if len(valid_results) == 1:
+            # ── Single transaction → existing flow ──
+            logger.info("[DEBUG] Single transaction flow chosen.")
+            result = valid_results[0]
+            pending_id = str(uuid.uuid4())[:8]
 
-        type_str = "📥 Pemasukan" if result.get("type") == "income" else "📤 Pengeluaran"
-        preview_text = (
-            f"📝 *Preview Transaksi*\n\n"
-            f"💰 Nominal: *{_format_currency(result['amount'])}*\n"
-            f"🏷️ Jenis: {type_str}\n"
-            f"📁 Kategori: {result['category'] or 'Lainnya'}\n"
-        )
+            context.user_data[f"pending_{pending_id}"] = {
+                **result,
+                "platform_id": str(user.id),
+                "user_name": user.first_name or user.username,
+                "source": "text",
+            }
 
-        if result.get("merchant"):
-            preview_text += f"🏪 Merchant: {result['merchant']}\n"
-        if result.get("description"):
-            preview_text += f"📝 Deskripsi: {result['description']}\n"
+            confidence_emoji = "🟢" if result["confidence"] >= 0.7 else "🟡" if result["confidence"] >= 0.4 else "🔴"
+            type_str = "📥 Pemasukan" if result.get("type") == "income" else "📤 Pengeluaran"
+            preview_text = (
+                f"📝 *Preview Transaksi*\n\n"
+                f"💰 Nominal: *{_format_currency(result['amount'])}*\n"
+                f"🏷️ Jenis: {type_str}\n"
+                f"📁 Kategori: {result['category'] or 'Lainnya'}\n"
+            )
 
-        preview_text += (
-            f"📅 Tanggal: {result['date']}\n"
-            f"{confidence_emoji} Confidence: {result['confidence']:.0%}\n\n"
-            f"_Simpan transaksi ini?_"
-        )
+            if result.get("merchant"):
+                preview_text += f"🏪 Merchant: {result['merchant']}\n"
+            if result.get("description"):
+                preview_text += f"📝 Deskripsi: {result['description']}\n"
 
-        await message.reply_text(
-            preview_text,
-            parse_mode="Markdown",
-            reply_markup=build_confirm_keyboard(pending_id),
-        )
+            preview_text += (
+                f"📅 Tanggal: {result['date']}\n"
+                f"{confidence_emoji} Confidence: {result['confidence']:.0%}\n\n"
+                f"_Simpan transaksi ini?_"
+            )
+
+            logger.info("[DEBUG] Sending single preview message...")
+            await message.reply_text(
+                preview_text,
+                parse_mode="Markdown",
+                reply_markup=build_confirm_keyboard(pending_id),
+            )
+            logger.info("[DEBUG] Single preview message sent successfully.")
+
+        else:
+            # ── Multiple transactions → batch preview ──
+            batch_id = str(uuid.uuid4())[:8]
+            logger.info(f"[DEBUG] Multiple transaction flow chosen. batch_id: {batch_id}")
+
+            # Store each item in user_data under a batch key
+            context.user_data[f"batch_{batch_id}"] = {
+                "items": valid_results,
+                "platform_id": str(user.id),
+                "user_name": user.first_name or user.username,
+                "source": "text",
+            }
+
+            logger.info(f"[DEBUG] Calling _send_batch_preview for batch_id: {batch_id}")
+            await _send_batch_preview(message, context, batch_id)
+            logger.info(f"[DEBUG] _send_batch_preview completed for batch_id: {batch_id}")
 
     except Exception as e:
         logger.error(f"Error processing text message: {e}", exc_info=True)
@@ -583,6 +620,50 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             "Coba lagi atau ketik /help untuk bantuan."
         )
 
+
+async def _send_batch_preview(message_or_query, context, batch_id: str, edit: bool = False) -> None:
+    """Build and send/edit the batch transaction preview message."""
+    logger.info(f"[DEBUG] Entering _send_batch_preview. batch_id={batch_id}, edit={edit}")
+    batch = context.user_data.get(f"batch_{batch_id}")
+    if not batch:
+        logger.warning(f"[DEBUG] Batch not found in context.user_data for batch_id: {batch_id}")
+        return
+
+    items = batch["items"]
+    total = sum(r["amount"] for r in items)
+    logger.info(f"[DEBUG] Batch items: {items}, Total amount: {total}")
+
+    preview_text = f"📝 *Preview {len(items)} Transaksi*\n\n"
+
+    for i, r in enumerate(items, 1):
+        type_emoji = "📥" if r.get("type") == "income" else "📤"
+        cat_emoji = CATEGORY_EMOJIS.get(r.get("category", "Lainnya"), "📌")
+        desc = r.get("description") or r.get("merchant") or "-"
+        preview_text += (
+            f"{i}. {type_emoji} {desc}: "
+            f"*{_format_currency(r['amount'])}* "
+            f"{cat_emoji} ({r.get('category', 'Lainnya')})\n"
+        )
+
+    preview_text += f"\n💰 *Total: {_format_currency(total)}*\n\n"
+    preview_text += "_Simpan semua transaksi ini?_"
+
+    logger.info(f"[DEBUG] Generated preview_text: {repr(preview_text)}")
+
+    keyboard = build_batch_confirm_keyboard(batch_id, len(items))
+
+    if edit:
+        logger.info("[DEBUG] Editing message text...")
+        await message_or_query.edit_text(
+            preview_text, parse_mode="Markdown", reply_markup=keyboard
+        )
+        logger.info("[DEBUG] Message edited successfully.")
+    else:
+        logger.info("[DEBUG] Replying with batch preview...")
+        await message_or_query.reply_text(
+            preview_text, parse_mode="Markdown", reply_markup=keyboard
+        )
+        logger.info("[DEBUG] Reply sent successfully.")
 
 
 
@@ -712,6 +793,33 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         elif data.startswith("cat:"):
             cat_name = data.split(":", 1)[1]
             await _handle_category_select_callback(query, context, platform_id, cat_name)
+
+        # ── Batch transaction confirm/cancel/edit ────────────────────────
+        elif data.startswith("batchconfirm:"):
+            batch_id = data.split(":", 1)[1]
+            await _handle_batch_confirm_callback(query, context, platform_id, batch_id)
+
+        elif data.startswith("batchcancel:"):
+            batch_id = data.split(":", 1)[1]
+            await _handle_batch_cancel_callback(query, context, batch_id)
+
+        elif data.startswith("batchedit:"):
+            parts = data.split(":")
+            batch_id = parts[1]
+            item_idx = int(parts[2])
+            await _handle_batch_edit_callback(query, context, batch_id, item_idx)
+
+        elif data.startswith("batchcat:"):
+            # batchcat:<batch_id>:<item_idx>:<category_name>
+            parts = data.split(":", 3)
+            batch_id = parts[1]
+            item_idx = int(parts[2])
+            cat_name = parts[3]
+            await _handle_batch_category_select(query, context, batch_id, item_idx, cat_name)
+
+        elif data.startswith("batchback:"):
+            batch_id = data.split(":", 1)[1]
+            await _send_batch_preview(query.message, context, batch_id, edit=True)
 
         # ── Transaction delete ──────────────────────────────────────────
         elif data.startswith("delete_req:"):
@@ -899,7 +1007,7 @@ async def _handle_confirm_callback(query, context, platform_id: str, pending_id:
     # Build success message
     type_str = "📥 Pemasukan" if result.get("type") == "income" else "📤 Pengeluaran"
     confirm_text = (
-        f"✅ *Transaksi Disimpan!*\n\n"
+        f"✅ *Item terkonfirm dan tersimpan!*\n\n"
         f"💰 Nominal: *{_format_currency(result['amount'])}*\n"
         f"🏷️ Jenis: {type_str}\n"
         f"📁 Kategori: {result['category'] or 'Lainnya'}\n"
@@ -1011,6 +1119,144 @@ async def _handle_category_select_callback(query, context, platform_id: str, cat
         parse_mode="Markdown",
         reply_markup=build_confirm_keyboard(pending_id),
     )
+
+
+# ── Batch Transaction Callbacks ─────────────────────────────────────────────
+
+async def _handle_batch_confirm_callback(query, context, platform_id: str, batch_id: str) -> None:
+    """Confirm and save ALL transactions in a batch."""
+    key = f"batch_{batch_id}"
+    batch = context.user_data.get(key)
+
+    if not batch:
+        await query.message.edit_text("⚠️ Batch transaksi sudah kadaluarsa. Kirim ulang pesan kamu.")
+        return
+
+    items = batch["items"]
+    saved_results = []
+
+    for item in items:
+        result = await _transaction_service.save_parsed(
+            platform_id=batch["platform_id"],
+            parsed_data=item,
+            source=batch.get("source", "text"),
+            platform="telegram",
+            user_name=batch.get("user_name"),
+        )
+        saved_results.append(result)
+
+    # Clean up
+    del context.user_data[key]
+
+    # Build success message
+    lines = [f"✅ *{len(saved_results)} item terkonfirm dan tersimpan!*\n"]
+    total = 0.0
+
+    for i, r in enumerate(saved_results, 1):
+        total += r["amount"]
+        type_emoji = "📥" if r.get("type") == "income" else "📤"
+        emoji = CATEGORY_EMOJIS.get(r.get("category", "Lainnya"), "📌")
+        lines.append(
+            f"{i}. {type_emoji} {r.get('description', '-')}: "
+            f"*{_format_currency(r['amount'])}* "
+            f"{emoji} ({r.get('category', 'Lainnya')}) "
+            f"🆔 #{r['transaction_id']}"
+        )
+
+    lines.append(f"\n💰 *Total: {_format_currency(total)}*")
+
+    await query.message.edit_text("\n".join(lines), parse_mode="Markdown")
+
+    # Check for spending anomalies after batch save
+    await _notification_service.check_spending_anomaly(platform_id, context.bot)
+
+    # Check budget alerts for all saved expense categories
+    alerts = []
+    for r in saved_results:
+        if r.get("type", "expense") == "expense" and r.get("category"):
+            alert = await _budget_service.check_budget_alert(platform_id, r["category"])
+            if alert:
+                alerts.append(alert)
+
+    if alerts:
+        alert_text = "\n\n"
+        for alert in alerts:
+            if alert["level"] == "exceeded":
+                alert_text += (
+                    f"🔴 *BUDGET EXCEEDED!* Kategori {alert['category']}: "
+                    f"{_format_currency(alert['spent'])} / {_format_currency(alert['budget'])} "
+                    f"({alert['percentage']:.0f}%)\n"
+                )
+            elif alert["level"] == "warning":
+                alert_text += (
+                    f"🟡 *Budget Warning* Kategori {alert['category']}: "
+                    f"{_format_currency(alert['spent'])} / {_format_currency(alert['budget'])} "
+                    f"({alert['percentage']:.0f}%)\n"
+                )
+        if alert_text.strip():
+            await query.message.reply_text(alert_text.strip(), parse_mode="Markdown")
+
+
+async def _handle_batch_cancel_callback(query, context, batch_id: str) -> None:
+    """Cancel ALL transactions in a batch."""
+    key = f"batch_{batch_id}"
+    if key in context.user_data:
+        item_count = len(context.user_data[key].get("items", []))
+        del context.user_data[key]
+        await query.message.edit_text(f"❌ {item_count} transaksi dibatalkan.")
+    else:
+        await query.message.edit_text("❌ Batch transaksi dibatalkan.")
+
+
+async def _handle_batch_edit_callback(query, context, batch_id: str, item_idx: int) -> None:
+    """Show category selection keyboard for a specific item in a batch."""
+    key = f"batch_{batch_id}"
+    batch = context.user_data.get(key)
+
+    if not batch:
+        await query.message.edit_text("⚠️ Batch transaksi sudah kadaluarsa.")
+        return
+
+    items = batch["items"]
+    if item_idx < 0 or item_idx >= len(items):
+        await query.message.edit_text("⚠️ Item tidak ditemukan.")
+        return
+
+    item = items[item_idx]
+    desc = item.get("description") or item.get("merchant") or "-"
+
+    await query.message.edit_text(
+        f"✏️ *Edit Kategori — Item #{item_idx + 1}*\n\n"
+        f"Transaksi: {desc} — {_format_currency(item['amount'])}\n"
+        f"Kategori saat ini: {item.get('category', 'Lainnya')}\n\n"
+        f"Pilih kategori baru:",
+        parse_mode="Markdown",
+        reply_markup=build_batch_category_keyboard(
+            batch_id, item_idx, txn_type=item.get("type", "expense")
+        ),
+    )
+
+
+async def _handle_batch_category_select(query, context, batch_id: str, item_idx: int, cat_name: str) -> None:
+    """Update category for a specific item in a batch, then return to batch preview."""
+    key = f"batch_{batch_id}"
+    batch = context.user_data.get(key)
+
+    if not batch:
+        await query.message.edit_text("⚠️ Batch transaksi sudah kadaluarsa.")
+        return
+
+    items = batch["items"]
+    if item_idx < 0 or item_idx >= len(items):
+        await query.message.edit_text("⚠️ Item tidak ditemukan.")
+        return
+
+    # Update the category
+    items[item_idx]["category"] = cat_name
+    context.user_data[key] = batch
+
+    # Return to batch preview
+    await _send_batch_preview(query.message, context, batch_id, edit=True)
 
 
 # ── Delete Transaction Callbacks ────────────────────────────────────────────

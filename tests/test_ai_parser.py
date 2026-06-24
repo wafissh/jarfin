@@ -14,19 +14,19 @@ from app.ai.base import AIProvider, ParsedTransaction
 class MockAIProvider(AIProvider):
     """Mock AI provider for testing the abstraction layer."""
 
-    async def parse_transaction(self, text: str) -> ParsedTransaction:
+    async def parse_transaction(self, text: str) -> list[ParsedTransaction]:
         # Simple mock: extract the last number as amount
         import re
         numbers = re.findall(r"\d+", text)
         amount = float(numbers[-1]) if numbers else 0.0
 
-        return ParsedTransaction(
+        return [ParsedTransaction(
             amount=amount,
             category="Makanan & Minuman",
             description=text,
             transaction_date=date.today(),
             confidence=0.9,
-        )
+        )]
 
     async def parse_receipt_text(self, ocr_text: str) -> list[ParsedTransaction]:
         return [
@@ -47,11 +47,12 @@ class MockAIProvider(AIProvider):
 async def test_mock_provider_parse_transaction():
     """Test that a mock provider can parse a transaction."""
     provider = MockAIProvider()
-    result = await provider.parse_transaction("Makan siang 25000")
+    results = await provider.parse_transaction("Makan siang 25000")
 
-    assert result.amount == 25000
-    assert result.category == "Makanan & Minuman"
-    assert result.confidence == 0.9
+    assert len(results) == 1
+    assert results[0].amount == 25000
+    assert results[0].category == "Makanan & Minuman"
+    assert results[0].confidence == 0.9
 
 
 @pytest.mark.asyncio
@@ -92,10 +93,11 @@ async def test_provider_is_swappable():
 
     # Use mock provider
     parser = TransactionParser(provider=MockAIProvider())
-    result = await parser.parse_text("Kopi 15000")
+    results = await parser.parse_text("Kopi 15000")
 
-    assert result.amount == 15000
-    assert isinstance(result, ParsedTransaction)
+    assert len(results) == 1
+    assert results[0].amount == 15000
+    assert isinstance(results[0], ParsedTransaction)
 
 
 @pytest.mark.asyncio
@@ -122,12 +124,13 @@ async def test_groq_provider_parse_transaction():
 
     with patch("httpx.AsyncClient.post", return_value=mock_response) as mock_post:
         provider = GroqProvider(api_key="test-key")
-        result = await provider.parse_transaction("Makan warteg 35000")
+        results = await provider.parse_transaction("Makan warteg 35000")
 
-        assert result.amount == 35000
-        assert result.category == "Makanan & Minuman"
-        assert result.merchant == "Warteg"
-        assert result.confidence == 0.95
+        assert len(results) == 1
+        assert results[0].amount == 35000
+        assert results[0].category == "Makanan & Minuman"
+        assert results[0].merchant == "Warteg"
+        assert results[0].confidence == 0.95
         mock_post.assert_called_once()
 
 
@@ -189,12 +192,13 @@ async def test_qwen_provider_parse_transaction():
 
     with patch("httpx.AsyncClient.post", return_value=mock_response) as mock_post:
         provider = QwenProvider(api_key="test-key")
-        result = await provider.parse_transaction("Makan warteg 35000")
+        results = await provider.parse_transaction("Makan warteg 35000")
 
-        assert result.amount == 35000
-        assert result.category == "Makanan & Minuman"
-        assert result.merchant == "Warteg"
-        assert result.confidence == 0.95
+        assert len(results) == 1
+        assert results[0].amount == 35000
+        assert results[0].category == "Makanan & Minuman"
+        assert results[0].merchant == "Warteg"
+        assert results[0].confidence == 0.95
         mock_post.assert_called_once()
 
 
@@ -230,3 +234,83 @@ async def test_qwen_provider_parse_receipt_image():
         assert results[0].merchant == "Alfamart"
         assert results[0].confidence == 0.92
         mock_post.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_multi_transaction_parsing():
+    """Test parsing multiple transactions using GeminiProvider with a mocked response."""
+    from app.ai.gemini_provider import GeminiProvider
+    from unittest.mock import patch
+    import json
+    
+    mock_response_content = """[
+        {"amount": 15000, "type": "expense", "category": "Makanan & Minuman", "merchant": "Starbucks", "description": "kopi", "transaction_date": "2026-06-16", "confidence": 0.9},
+        {"amount": 25000, "type": "expense", "category": "Makanan & Minuman", "merchant": "Warteg", "description": "makan", "transaction_date": "2026-06-16", "confidence": 0.8},
+        {"amount": 5000, "type": "expense", "category": "Transportasi", "merchant": "Parkir", "description": "parkir", "transaction_date": "2026-06-16", "confidence": 0.7}
+    ]"""
+
+    # Mock the google-genai Client response
+    class MockResponse:
+        def __init__(self, text):
+            self.text = text
+
+    with patch("google.genai.Client") as mock_client_cls:
+        mock_client = mock_client_cls.return_value
+        mock_client.models.generate_content.return_value = MockResponse(mock_response_content)
+
+        provider = GeminiProvider(api_key="test-key")
+        results = await provider.parse_transaction("kopi 15rb, makan 25rb, parkir 5rb")
+
+        assert len(results) == 3
+        
+        assert results[0].amount == 15000
+        assert results[0].merchant == "Starbucks"
+        
+        assert results[1].amount == 25000
+        assert results[1].merchant == "Warteg"
+        
+        assert results[2].amount == 5000
+        assert results[2].merchant == "Parkir"
+        assert results[2].category == "Transportasi"
+
+
+@pytest.mark.asyncio
+async def test_transaction_service_parse_only_multi():
+    """Test TransactionService.parse_only_multi returns structured dicts for multiple transactions."""
+    from app.services.transaction_service import TransactionService
+    from app.ai.parser import TransactionParser
+    
+    # Mock parser that returns multiple ParsedTransactions
+    class MockParser:
+        async def parse_text(self, text: str):
+            return [
+                ParsedTransaction(
+                    amount=15000,
+                    type="expense",
+                    category="Makanan & Minuman",
+                    merchant="Starbucks",
+                    description="kopi",
+                    transaction_date=date(2026, 6, 16),
+                    confidence=0.9
+                ),
+                ParsedTransaction(
+                    amount=25000,
+                    type="expense",
+                    category="Makanan & Minuman",
+                    merchant="Warteg",
+                    description="makan",
+                    transaction_date=date(2026, 6, 16),
+                    confidence=0.8
+                )
+            ]
+
+    service = TransactionService(parser=MockParser())
+    results = await service.parse_only_multi("kopi 15rb, makan 25rb")
+
+    assert len(results) == 2
+    assert results[0]["amount"] == 15000
+    assert results[0]["merchant"] == "Starbucks"
+    assert results[0]["date"] == "2026-06-16"
+    assert results[1]["amount"] == 25000
+    assert results[1]["merchant"] == "Warteg"
+    assert results[1]["date"] == "2026-06-16"

@@ -258,17 +258,33 @@ class TransactionService:
         """
         Parse a text message WITHOUT saving to DB.
         Used for confirmation flow: parse → preview → user confirm → save.
+        Returns only the first transaction (backward compatibility for single-txn flow).
         """
-        parsed = await self.parser.parse_text(text)
-        return {
-            "amount": parsed.amount,
-            "type": parsed.type,
-            "category": parsed.category,
-            "merchant": parsed.merchant,
-            "description": parsed.description,
-            "date": parsed.transaction_date.isoformat() if parsed.transaction_date else date.today().isoformat(),
-            "confidence": parsed.confidence,
+        results = await self.parse_only_multi(text)
+        return results[0] if results else {
+            "amount": 0, "type": "expense", "category": "Lainnya",
+            "merchant": None, "description": text[:100],
+            "date": date.today().isoformat(), "confidence": 0.0,
         }
+
+    async def parse_only_multi(self, text: str) -> list[dict]:
+        """
+        Parse a text message WITHOUT saving to DB — returns ALL detected transactions.
+        Used for multi-transaction confirmation flow.
+        """
+        parsed_list = await self.parser.parse_text(text)
+        return [
+            {
+                "amount": parsed.amount,
+                "type": parsed.type,
+                "category": parsed.category,
+                "merchant": parsed.merchant,
+                "description": parsed.description,
+                "date": parsed.transaction_date.isoformat() if parsed.transaction_date else date.today().isoformat(),
+                "confidence": parsed.confidence,
+            }
+            for parsed in parsed_list
+        ]
 
     async def save_parsed(
         self,

@@ -49,15 +49,20 @@ class AIProvider(ABC):
     """
 
     @abstractmethod
-    async def parse_transaction(self, text: str) -> ParsedTransaction:
+    async def parse_transaction(self, text: str) -> list["ParsedTransaction"]:
         """
-        Parse a natural language text into a structured transaction.
+        Parse a natural language text into one or more structured transactions.
+
+        A single message may contain multiple transactions (e.g.,
+        "kopi 15rb, makan 25rb, parkir 5rb"). The implementation must
+        detect how many transactions are present and return all of them.
 
         Args:
             text: User's message, e.g., "Makan siang di warteg 25000"
 
         Returns:
-            ParsedTransaction with extracted amount, category, etc.
+            List of ParsedTransaction with extracted amount, category, etc.
+            Always returns a list, even for single transactions.
         """
         ...
 

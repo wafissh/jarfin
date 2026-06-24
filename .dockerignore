@@ -1,0 +1,45 @@
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Environment secrets
+.env
+
+# Database files
+*.db
+*.sqlite3
+
+# Version control
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
+tests/
+
+# Distribution
+dist/
+build/
+*.egg-info/
+
+# Docs & misc
+README.md
+*.log

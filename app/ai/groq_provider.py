@@ -26,8 +26,8 @@ class GroqProvider(AIProvider):
         self.api_key = api_key or settings.groq_api_key
         self.model = model or settings.groq_model or "llama-3.3-70b-specdec"
 
-    async def parse_transaction(self, text: str) -> ParsedTransaction:
-        """Parse a text message into a structured transaction using Groq."""
+    async def parse_transaction(self, text: str) -> list[ParsedTransaction]:
+        """Parse a text message into structured transaction(s) using Groq."""
         prompt = TRANSACTION_PARSE_PROMPT.format(
             expense_categories=", ".join(CATEGORY_NAMES),
             income_categories=", ".join(INCOME_CATEGORY_NAMES),
@@ -61,11 +61,11 @@ class GroqProvider(AIProvider):
                 response.raise_for_status()
                 res_data = response.json()
                 content = res_data["choices"][0]["message"]["content"]
-                return self._parse_json_response(content)
+                return self._parse_json_list_response(content)
 
         except Exception as e:
             logger.error(f"Groq parse_transaction failed: {e}")
-            return self._fallback_parse(text)
+            return [self._fallback_parse(text)]
 
     async def parse_receipt_text(self, ocr_text: str) -> list[ParsedTransaction]:
         """Parse OCR receipt text into transactions using Groq."""

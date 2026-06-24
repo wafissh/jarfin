@@ -5,6 +5,7 @@ Each repository handles one model/table.
 
 from __future__ import annotations
 
+from calendar import monthrange
 from datetime import datetime, date, timedelta
 from sqlalchemy import select, func, delete as sa_delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -218,6 +219,11 @@ class TransactionRepository:
 
         year, mon = month.split("-")
 
+        # Build date range (works on both SQLite and PostgreSQL)
+        start_date = date(int(year), int(mon), 1)
+        _, last_day = monthrange(int(year), int(mon))
+        end_date = date(int(year), int(mon), last_day)
+
         # Get expenses grouped by category
         stmt_expenses = (
             select(
@@ -228,8 +234,8 @@ class TransactionRepository:
             .where(
                 Transaction.user_id == user_id,
                 Transaction.type == "expense",
-                func.strftime("%Y", Transaction.date) == year,
-                func.strftime("%m", Transaction.date) == mon,
+                Transaction.date >= start_date,
+                Transaction.date <= end_date,
             )
             .group_by(Transaction.category)
         )
@@ -256,8 +262,8 @@ class TransactionRepository:
             .where(
                 Transaction.user_id == user_id,
                 Transaction.type == "income",
-                func.strftime("%Y", Transaction.date) == year,
-                func.strftime("%m", Transaction.date) == mon,
+                Transaction.date >= start_date,
+                Transaction.date <= end_date,
             )
             .group_by(Transaction.category)
         )

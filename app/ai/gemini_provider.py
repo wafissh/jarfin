@@ -17,7 +17,9 @@ logger = logging.getLogger(__name__)
 
 # ── Prompt Templates ────────────────────────────────────────────────────────
 
-TRANSACTION_PARSE_PROMPT = """Kamu adalah asisten keuangan. Tugas kamu: ekstrak informasi transaksi dari pesan pengguna.
+TRANSACTION_PARSE_PROMPT = """Kamu adalah asisten keuangan. Tugas kamu: ekstrak SEMUA informasi transaksi dari pesan pengguna.
+
+PENTING: Satu pesan bisa berisi SATU atau BANYAK transaksi. Deteksi setiap transaksi individual yang disebutkan.
 
 Daftar Kategori yang tersedia berdasarkan tipe transaksi:
 - Kategori Pengeluaran (Expense): {expense_categories}
@@ -27,24 +29,30 @@ Pesan pengguna: "{text}"
 
 Tanggal hari ini: {today}
 
-Balas dalam format JSON (tanpa markdown, tanpa ```):
-{{
-  "amount": <angka>,
-  "type": "<"expense" atau "income">",
-  "category": "<kategori dari daftar>",
-  "merchant": "<nama toko/tempat atau null>",
-  "description": "<deskripsi singkat>",
-  "transaction_date": "<YYYY-MM-DD>",
-  "confidence": <0.0-1.0>
-}}
+Balas dalam format JSON array (tanpa markdown, tanpa ```):
+[
+  {{
+    "amount": <angka>,
+    "type": "<"expense" atau "income">",
+    "category": "<kategori dari daftar>",
+    "merchant": "<nama toko/tempat atau null>",
+    "description": "<deskripsi singkat>",
+    "transaction_date": "<YYYY-MM-DD>",
+    "confidence": <0.0-1.0>
+  }}
+]
 
 Aturan:
+- PENTING: Jika pesan berupa pertanyaan, konsultasi keuangan, tips menabung/investasi, curhat, sapaan, atau diskusi umum yang BUKAN pencatatan transaksi riil/langsung (misal: "gmn cara aku nabung...", "bagaimana cara...", "halo", dll.), kamu WAJIB mengembalikan array kosong `[]` (atau set `confidence` = 0.0) agar sistem tahu ini adalah konsultasi/chat biasa, bukan transaksi untuk dicatat.
+- Hanya catat jika pengguna secara spesifik ingin mencatat transaksi pemasukan atau pengeluaran riil (misal: "kopi 15rb", "beli bensin 50000", "gaji masuk 5jt", "skrg aku punya cash 5 ribu, bank 180 ribu").
+- SELALU balas dalam format JSON array, meskipun hanya ada 1 transaksi atau kosong `[]`
+- Jika ada banyak transaksi dalam satu pesan (misal: "kopi 15rb, makan 25rb, parkir 5rb"), buat satu objek per transaksi
 - amount harus berupa angka positif
 - type harus berupa "income" jika transaksi adalah pemasukan (gaji, transfer masuk, dapat uang, kembalian, untung, hadiah, dll) atau "expense" jika transaksi adalah pengeluaran (belanja, makan, bayar tagihan, dll)
 - category harus disesuaikan dengan tipe transaksi. Jika type adalah "income", category harus dipilih dari Kategori Pemasukan. Jika type adalah "expense", category harus dipilih dari Kategori Pengeluaran.
 - Jika pengguna tidak menyebut tanggal, gunakan hari ini
 - Jika tidak yakin kategori, gunakan "Lainnya"
-- confidence: seberapa yakin kamu dengan parsing ini (0.0-1.0)
+- confidence: seberapa yakin kamu dengan parsing ini (0.0-1.0). Jika pesan terindikasi bukan transaksi riil tetapi kamu memparsingnya, beri `confidence` = 0.0.
 """
 
 RECEIPT_PARSE_PROMPT = """Kamu adalah asisten keuangan. Ekstrak semua transaksi dari teks struk/nota berikut.
@@ -99,8 +107,8 @@ class GeminiProvider(AIProvider):
             self._client = genai.Client(api_key=self.api_key)
         return self._client
 
-    async def parse_transaction(self, text: str) -> ParsedTransaction:
-        """Parse a text message into a structured transaction using Gemini."""
+    async def parse_transaction(self, text: str) -> list[ParsedTransaction]:
+        """Parse a text message into structured transaction(s) using Gemini."""
         prompt = TRANSACTION_PARSE_PROMPT.format(
             expense_categories=", ".join(CATEGORY_NAMES),
             income_categories=", ".join(INCOME_CATEGORY_NAMES),
@@ -115,12 +123,12 @@ class GeminiProvider(AIProvider):
                 contents=prompt,
             )
 
-            return self._parse_json_response(response.text)
+            return self._parse_json_list_response(response.text)
 
         except Exception as e:
             logger.error(f"Gemini parse_transaction failed: {e}")
             # Fallback: try to extract amount from text
-            return self._fallback_parse(text)
+            return [self._fallback_parse(text)]
 
     async def parse_receipt_text(self, ocr_text: str) -> list[ParsedTransaction]:
         """Parse OCR receipt text into transactions using Gemini."""

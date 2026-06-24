@@ -30,20 +30,21 @@ class TransactionParser:
     def __init__(self, provider: AIProvider):
         self.provider = provider
 
-    async def parse_text(self, text: str) -> ParsedTransaction:
+    async def parse_text(self, text: str) -> list[ParsedTransaction]:
         """
-        Parse a user's text message into a structured transaction.
+        Parse a user's text message into one or more structured transactions.
 
         Args:
             text: Natural language input, e.g., "Kopi Starbucks 55000"
+                  or "kopi 15rb, makan 25rb, parkir 5rb"
 
         Returns:
-            ParsedTransaction with extracted fields.
+            List of ParsedTransaction with extracted fields.
         """
         logger.info(f"Parsing text: '{text[:50]}...'")
-        result = await self.provider.parse_transaction(text)
-        logger.info(f"Parsed result: amount={result.amount}, category={result.category}")
-        return result
+        results = await self.provider.parse_transaction(text)
+        logger.info(f"Parsed {len(results)} transaction(s)")
+        return results
 
     async def parse_receipt(self, ocr_text: str) -> list[ParsedTransaction]:
         """

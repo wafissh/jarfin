@@ -10,6 +10,7 @@ python-telegram-bot==21.5
 # Database
 sqlalchemy[asyncio]==2.0.50
 aiosqlite==0.20.0
+# asyncpg is installed separately in production (Dockerfile) for PostgreSQL/Supabase
 
 # AI
 google-genai==1.14.0

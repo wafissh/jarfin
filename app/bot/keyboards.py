@@ -44,6 +44,63 @@ def build_confirm_keyboard(transaction_id: str) -> InlineKeyboardMarkup:
     ])
 
 
+def build_batch_confirm_keyboard(batch_id: str, item_count: int) -> InlineKeyboardMarkup:
+    """Build confirm/cancel keyboard for a batch of multiple transactions.
+
+    Includes per-item edit buttons so users can change category for individual items.
+    """
+    buttons = [
+        [
+            InlineKeyboardButton("✅ Simpan Semua", callback_data=f"batchconfirm:{batch_id}"),
+            InlineKeyboardButton("❌ Batal Semua", callback_data=f"batchcancel:{batch_id}"),
+        ],
+    ]
+
+    # Add per-item edit buttons (max 3 per row)
+    edit_row = []
+    for i in range(item_count):
+        edit_row.append(
+            InlineKeyboardButton(f"✏️ #{i+1}", callback_data=f"batchedit:{batch_id}:{i}")
+        )
+        if len(edit_row) == 3:
+            buttons.append(edit_row)
+            edit_row = []
+    if edit_row:
+        buttons.append(edit_row)
+
+    return InlineKeyboardMarkup(buttons)
+
+
+def build_batch_category_keyboard(batch_id: str, item_idx: int, txn_type: str = "expense") -> InlineKeyboardMarkup:
+    """Build category keyboard for editing a specific item in a batch.
+
+    Uses batchcat: callback format so the handler knows which batch and item to update.
+    """
+    buttons = []
+    categories = INCOME_CATEGORIES if txn_type == "income" else DEFAULT_CATEGORIES
+
+    row = []
+    for cat in categories:
+        row.append(
+            InlineKeyboardButton(
+                text=f"{cat['name']}",
+                callback_data=f"batchcat:{batch_id}:{item_idx}:{cat['name']}",
+            )
+        )
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+
+    # Add cancel button to go back to batch preview
+    buttons.append([
+        InlineKeyboardButton("↩️ Kembali", callback_data=f"batchback:{batch_id}")
+    ])
+
+    return InlineKeyboardMarkup(buttons)
+
+
 def build_main_menu_keyboard() -> InlineKeyboardMarkup:
     """Build the main menu keyboard."""
     return InlineKeyboardMarkup([

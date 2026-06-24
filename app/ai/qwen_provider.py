@@ -76,8 +76,8 @@ class QwenProvider(AIProvider):
             },
         )
 
-    async def parse_transaction(self, text: str) -> ParsedTransaction:
-        """Parse a text message into a structured transaction using Qwen."""
+    async def parse_transaction(self, text: str) -> list[ParsedTransaction]:
+        """Parse a text message into structured transaction(s) using Qwen."""
         prompt = TRANSACTION_PARSE_PROMPT.format(
             expense_categories=", ".join(CATEGORY_NAMES),
             income_categories=", ".join(INCOME_CATEGORY_NAMES),
@@ -99,7 +99,7 @@ class QwenProvider(AIProvider):
                     ],
                     "response_format": {"type": "json_object"},
                     "temperature": 0.1,
-                    "max_tokens": 256,
+                    "max_tokens": 512,
                     "enable_thinking": False,
                 },
             )
@@ -108,11 +108,11 @@ class QwenProvider(AIProvider):
             response.raise_for_status()
             res_data = response.json()
             content = res_data["choices"][0]["message"]["content"]
-            return self._parse_json_response(content)
+            return self._parse_json_list_response(content)
 
         except Exception as e:
             logger.error(f"Qwen parse_transaction failed: {e}")
-            return self._fallback_parse(text)
+            return [self._fallback_parse(text)]
 
     async def parse_receipt_text(self, ocr_text: str) -> list[ParsedTransaction]:
         """Parse OCR receipt text into transactions using Qwen."""
@@ -300,7 +300,7 @@ class QwenProvider(AIProvider):
 
             model_name = self.chat_model if use_reasoning else self.model
             enable_thinking = True if use_reasoning else False
-            max_tokens = 1024 if use_reasoning else 200
+            max_tokens = 2048 if use_reasoning else 1024
 
             url = f"{self.base_url}/chat/completions"
             response = await self._client.post(
