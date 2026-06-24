@@ -156,7 +156,7 @@ class RecurringTransaction(Base):
     frequency: Mapped[str] = mapped_column(String, nullable=False, default="monthly")
     day_of_month: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     next_run_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    is_active: Mapped[bool] = mapped_column(Integer, nullable=False, default=True)
+    is_active: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )

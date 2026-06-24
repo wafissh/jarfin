@@ -437,7 +437,7 @@ class RecurringTransactionRepository:
             frequency=frequency,
             day_of_month=day_of_month,
             next_run_date=next_run_date or date.today(),
-            is_active=True,
+            is_active=1,
         )
         self.session.add(rec)
         await self.session.flush()
@@ -449,7 +449,7 @@ class RecurringTransactionRepository:
             select(RecurringTransaction)
             .where(
                 RecurringTransaction.user_id == user_id,
-                RecurringTransaction.is_active == True,  # noqa: E712
+                RecurringTransaction.is_active == 1,
             )
             .order_by(RecurringTransaction.created_at.desc())
         )
@@ -468,7 +468,7 @@ class RecurringTransactionRepository:
         stmt = (
             select(RecurringTransaction)
             .where(
-                RecurringTransaction.is_active == True,  # noqa: E712
+                RecurringTransaction.is_active == 1,
                 RecurringTransaction.next_run_date <= today,
             )
         )
@@ -489,6 +489,6 @@ class RecurringTransactionRepository:
         rec = await self.get_by_id(rec_id)
         if rec is None or rec.user_id != user_id:
             return False
-        rec.is_active = False
+        rec.is_active = 0
         await self.session.flush()
         return True

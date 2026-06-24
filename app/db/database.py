@@ -32,6 +32,10 @@ else:
     _engine_kwargs["pool_size"] = 10
     _engine_kwargs["max_overflow"] = 20
     _engine_kwargs["pool_pre_ping"] = True  # auto-reconnect stale connections
+    _engine_kwargs["connect_args"] = {
+        "statement_cache_size": 0,  # Required for Supabase Transaction Pooler / PgBouncer
+        "prepared_statement_cache_size": 0,
+    }
 
 engine = create_async_engine(settings.database_url, **_engine_kwargs)
 
