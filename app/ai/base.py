@@ -109,7 +109,7 @@ class AIProvider(ABC):
         """
         name = user_name or "kamu"
         return (
-            f"Halo {name}! 👋 Ada yang bisa Jarfin bantu?\n\n"
+            f"Halo {name}! 👋 Ada yang bisa Fino bantu?\n\n"
             "💬 Kamu bisa:\n"
             "• Catat transaksi — _Kopi 15000_\n"
             "• Kirim foto struk\n"

@@ -121,7 +121,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
 
     welcome_text = (
-        f"👋 Halo {user.first_name}! Selamat datang di *Jarfin*.\n\n"
+        f"👋 Halo {user.first_name}! Selamat datang di *Fino AI*.\n\n"
         f"Aku bot pencatat keuangan kamu. Ini yang bisa aku lakukan:\n\n"
         f"💬 *Kirim pesan teks* — Catat transaksi\n"
         f"   Contoh: _Makan siang warteg 25000_\n\n"
@@ -146,7 +146,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /help — show available commands and usage."""
     help_text = (
-        "📖 *Panduan Jarfin*\n\n"
+        "📖 *Panduan Fino AI*\n\n"
         "*Cara Mencatat Transaksi:*\n"
         "1️⃣ Ketik langsung, contoh:\n"
         "   • _Kopi Starbucks 55000_\n"
@@ -421,7 +421,7 @@ def _validate_message(text: str) -> tuple[bool, str]:
     if any(n in lower_text for n in paper_nouns) and any(t in lower_text for t in ["tentang", "mengenai"]):
         return False, (
             "⚠️ *Permintaan Tidak Didukung*\n\n"
-            "Maaf, Jarfin adalah asisten pencatat keuangan pribadi dan tidak dapat melayani permintaan untuk *menulis paper, skripsi, makalah, atau tugas akademik lainnya*.\n\n"
+            "Maaf, Fino AI adalah asisten pencatat keuangan pribadi dan tidak dapat melayani permintaan untuk *menulis paper, skripsi, makalah, atau tugas akademik lainnya*.\n\n"
             "Silakan ajukan pertanyaan seputar keuangan pribadi atau catat transaksimu! 😊"
         )
 
@@ -519,7 +519,7 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         except Exception as e:
             logger.error(f"Error in chat_response: {e}", exc_info=True)
             await message.reply_text(
-                f"Halo! 👋 Ada yang bisa Jarfin bantu?\n"
+                f"Halo! 👋 Ada yang bisa Fino AI bantu?\n"
                 "_Kirim transaksi seperti: Kopi 15000_",
                 parse_mode="Markdown",
             )
